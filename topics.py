@@ -1,0 +1,64 @@
+"""MQTT topic constants — the single rendering of the canonical grammar.
+
+Canonical grammar: tendrilio/{contract_v}/{hub_id}/{stream}, lowercase.
+Cert policy templates wildcard the version segment: tendrilio/*/{hub_id}/#.
+
+This module is part of the PUBLISHED contract artifact (the public
+tendrilio-contract repo is synced from this directory on tagged releases):
+changes require a contract-version bump + N-1 compatibility + contract tests.
+Rendering a topic anywhere else in the codebase is a defect.
+
+{hub_id} is the Hub's cloud identifier (UUIDv7, lowercase) and EQUALS the
+Hub's AWS IoT Thing name — that identity is what lets the policy variable
+${iot:Connection.Thing.ThingName} confine each Hub to its own subtree.
+"""
+
+# Contract version, both renderings derived from one integer:
+# the topic segment uses "v1"; event payloads carry the bare integer.
+CONTRACT_VERSION: int = 1
+CONTRACT_V: str = f"v{CONTRACT_VERSION}"
+
+TOPIC_ROOT: str = "tendrilio"
+
+# Streams — the full publishing surface (named once, here; Epic 4/9 stories
+# consume these constants rather than inventing names).
+STREAM_READINGS: str = "readings"
+STREAM_NODE_STATUS: str = "node-status"
+STREAM_ACTUATOR_STATE: str = "actuator-state"
+STREAM_ALERTS: str = "alerts"
+STREAM_RULES: str = "rules"
+STREAM_RULE_EXECUTIONS: str = "rule-executions"
+STREAM_COMMANDS: str = "commands"  # cloud → hub: command envelopes
+STREAM_COMMAND_STATUS: str = "command-status"  # hub → cloud: acceptance + node-ack stages
+STREAM_CONNECTOR_STATUS: str = "connector/status"  # connector lifecycle incl. clean shutdown
+STREAM_OTA_STATUS: str = "ota-status"  # per-node OTA progress (stage vocabulary: Story 7.1)
+
+STREAMS: frozenset[str] = frozenset(
+    {
+        STREAM_READINGS,
+        STREAM_NODE_STATUS,
+        STREAM_ACTUATOR_STATE,
+        STREAM_ALERTS,
+        STREAM_RULES,
+        STREAM_RULE_EXECUTIONS,
+        STREAM_COMMANDS,
+        STREAM_COMMAND_STATUS,
+        STREAM_CONNECTOR_STATUS,
+        STREAM_OTA_STATUS,
+    }
+)
+
+# The per-Hub cert policy filter as deployed by terraform/modules/iot —
+# version segment wildcarded so contract bumps never require policy re-issue.
+IOT_POLICY_TOPIC_FILTER: str = "tendrilio/*/${iot:Connection.Thing.ThingName}/#"
+
+
+def topic(hub_id: str, stream: str, contract_v: str = CONTRACT_V) -> str:
+    """Render the canonical topic for a Hub and stream.
+
+    Raises ValueError for streams outside the contract — there are no
+    ad-hoc topics in this system.
+    """
+    if stream not in STREAMS:
+        raise ValueError(f"unknown stream {stream!r}; contract streams: {sorted(STREAMS)}")
+    return f"{TOPIC_ROOT}/{contract_v}/{hub_id}/{stream}"
