@@ -13,10 +13,19 @@ Hub's AWS IoT Thing name — that identity is what lets the policy variable
 ${iot:Connection.Thing.ThingName} confine each Hub to its own subtree.
 """
 
+import re
+
 # Contract version, both renderings derived from one integer:
 # the topic segment uses "v1"; event payloads carry the bare integer.
 CONTRACT_VERSION: int = 1
 CONTRACT_V: str = f"v{CONTRACT_VERSION}"
+
+# Render-time input guards for the single authoritative renderer (see topic()).
+# hub_id must be a lowercase UUIDv7 (matches envelope/v1.json's uuidv7 def — also the
+# Hub's IoT Thing name); contract_v must be a vN segment. This keeps a malformed value
+# (uppercase, slashes, wildcards) from injecting extra MQTT levels or breaking grammar.
+_HUB_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+_CONTRACT_V_RE = re.compile(r"^v\d+$")
 
 TOPIC_ROOT: str = "tendrilio"
 
@@ -30,8 +39,9 @@ STREAM_RULES: str = "rules"
 STREAM_RULE_EXECUTIONS: str = "rule-executions"
 STREAM_COMMANDS: str = "commands"  # cloud → hub: command envelopes
 STREAM_COMMAND_STATUS: str = "command-status"  # hub → cloud: acceptance + node-ack stages
+STREAM_KILL_SWITCH: str = "kill-switch"  # hub → cloud: owner's Kill-Switch state (Story 6.4)
 STREAM_CONNECTOR_STATUS: str = "connector/status"  # connector lifecycle incl. clean shutdown
-STREAM_OTA_STATUS: str = "ota-status"  # per-node OTA progress (stage vocabulary: Story 7.1)
+STREAM_OTA_STATUS: str = "ota-status"  # per-node OTA progress (stages: events.OTA_PROGRESS_STAGES)
 
 STREAMS: frozenset[str] = frozenset(
     {
@@ -43,6 +53,7 @@ STREAMS: frozenset[str] = frozenset(
         STREAM_RULE_EXECUTIONS,
         STREAM_COMMANDS,
         STREAM_COMMAND_STATUS,
+        STREAM_KILL_SWITCH,
         STREAM_CONNECTOR_STATUS,
         STREAM_OTA_STATUS,
     }
@@ -61,4 +72,8 @@ def topic(hub_id: str, stream: str, contract_v: str = CONTRACT_V) -> str:
     """
     if stream not in STREAMS:
         raise ValueError(f"unknown stream {stream!r}; contract streams: {sorted(STREAMS)}")
+    if not _CONTRACT_V_RE.fullmatch(contract_v):
+        raise ValueError(f"invalid contract_v {contract_v!r}; expected a version segment like 'v1'")
+    if not _HUB_ID_RE.fullmatch(hub_id):
+        raise ValueError(f"invalid hub_id {hub_id!r}; expected a lowercase UUIDv7")
     return f"{TOPIC_ROOT}/{contract_v}/{hub_id}/{stream}"

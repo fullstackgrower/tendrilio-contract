@@ -27,13 +27,27 @@ COMMAND_ACCEPTED: str = "command.accepted"
 COMMAND_EXECUTED: str = "command.executed"
 COMMAND_DECLINED: str = "command.declined"
 COMMAND_TIMED_OUT: str = "command.timed_out"
+RULE_EXECUTION_TRIGGERED: str = "rule.execution_triggered"
 CONNECTOR_DISABLED: str = "connector.disabled"  # clean-shutdown signal (owner intent)
-# OTA events: the `stage` enum inside ota.node_progress payloads is NOT frozen
-# here — Story 7.1 freezes it against the hub's real WsOtaStatusEvent
-# vocabulary before any OTA feature ships. Do not invent stages.
+HUB_KILL_SWITCH_CHANGED: str = "hub.kill_switch_changed"  # owner flipped Kill Switch (6.4)
+# OTA events. The terminals below are events; per-node progress streams as
+# `ota.node_progress` carrying a `stage` value in its payload `data`.
 OTA_NODE_PROGRESS: str = "ota.node_progress"
 OTA_NODE_SUCCEEDED: str = "ota.node_succeeded"
 OTA_NODE_ROLLED_BACK: str = "ota.node_rolled_back"
+
+# The frozen `stage` enum inside ota.node_progress payloads (Story 7.1, forward
+# obligation F-11). These are bare lowercase tokens (payload VALUES, never event
+# types — do NOT add them to EVENT_TYPES). The set is a candidate frozen from the
+# architecture's documented vocabulary (EXPERIENCE.md Flow 6: flashing →
+# rebooting → confirmed); the live hub WsOtaStatusEvent enum is not yet in this
+# repo (separate Epic-9 hub repo), so this enum is OPEN: a hub stage not listed
+# here must be rendered as a humanized form of its raw token downstream — never
+# dropped, never an error (mirrors audit_category()'s "other" fallback). A hub
+# cross-check that forces a change ships as a contract version note, not a silent
+# edit. The per-node outcome is a terminal EVENT (ota.node_succeeded /
+# ota.node_rolled_back), not a stage.
+OTA_PROGRESS_STAGES: tuple[str, ...] = ("flashing", "rebooting", "confirmed")
 
 EVENT_TYPES: frozenset[str] = frozenset(
     {
@@ -48,9 +62,11 @@ EVENT_TYPES: frozenset[str] = frozenset(
         COMMAND_DECLINED,
         COMMAND_TIMED_OUT,
         CONNECTOR_DISABLED,
+        HUB_KILL_SWITCH_CHANGED,
         OTA_NODE_PROGRESS,
         OTA_NODE_SUCCEEDED,
         OTA_NODE_ROLLED_BACK,
+        RULE_EXECUTION_TRIGGERED,
     }
 )
 
