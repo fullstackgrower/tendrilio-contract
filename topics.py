@@ -42,6 +42,12 @@ STREAM_COMMAND_STATUS: str = "command-status"  # hub → cloud: acceptance + nod
 STREAM_KILL_SWITCH: str = "kill-switch"  # hub → cloud: owner's Kill-Switch state (Story 6.4)
 STREAM_CONNECTOR_STATUS: str = "connector/status"  # connector lifecycle incl. clean shutdown
 STREAM_OTA_STATUS: str = "ota-status"  # per-node OTA progress (stages: events.OTA_PROGRESS_STAGES)
+# contract-v1.3.0 (Epic 24 §7 / hub Epic 25): read-only domain state snapshots,
+# hub → cloud. One stream + one full-replacement event per domain; emitted on
+# domain change plus a slow reconcile tick. Absence is normal (older hubs).
+STREAM_COMPOST_STATE: str = "compost-state"  # compost.state_snapshot (hub 25.2)
+STREAM_GERMINATION_STATE: str = "germination-state"  # germination.state_snapshot (hub 25.3)
+STREAM_IRRIGATION_STATE: str = "irrigation-state"  # irrigation.state_snapshot (25.4; read-only)
 
 STREAMS: frozenset[str] = frozenset(
     {
@@ -56,6 +62,9 @@ STREAMS: frozenset[str] = frozenset(
         STREAM_KILL_SWITCH,
         STREAM_CONNECTOR_STATUS,
         STREAM_OTA_STATUS,
+        STREAM_COMPOST_STATE,
+        STREAM_GERMINATION_STATE,
+        STREAM_IRRIGATION_STATE,
     }
 )
 

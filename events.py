@@ -18,6 +18,9 @@ vocabulary plus actor fields.
 """
 
 READING_RECORDED: str = "reading.recorded"
+# contract-v1.3.0: node.status_changed `data` gains additive nullable `name`
+# (the node's human label), present on EVERY emission (idempotent upsert
+# cloud-side; renames propagate on the next transition or via state snapshots).
 NODE_STATUS_CHANGED: str = "node.status_changed"
 ALERT_RAISED: str = "alert.raised"
 ALERT_ACKNOWLEDGED: str = "alert.acknowledged"
@@ -27,14 +30,24 @@ COMMAND_ACCEPTED: str = "command.accepted"
 COMMAND_EXECUTED: str = "command.executed"
 COMMAND_DECLINED: str = "command.declined"
 COMMAND_TIMED_OUT: str = "command.timed_out"
-RULE_EXECUTION_TRIGGERED: str = "rule.execution_triggered"
 CONNECTOR_DISABLED: str = "connector.disabled"  # clean-shutdown signal (owner intent)
 HUB_KILL_SWITCH_CHANGED: str = "hub.kill_switch_changed"  # owner flipped Kill Switch (6.4)
+# Catch-up to hub pin contract-v1.1.0 (2026-07-13): the hub added this alongside
+# hub.kill_switch_changed and publishes it on the rule-executions stream (rule.test
+# direct path, hub 22.7). CONTRACT_VERSION unchanged (additive, N-1 compatible).
+RULE_EXECUTION_TRIGGERED: str = "rule.execution_triggered"
 # OTA events. The terminals below are events; per-node progress streams as
 # `ota.node_progress` carrying a `stage` value in its payload `data`.
 OTA_NODE_PROGRESS: str = "ota.node_progress"
 OTA_NODE_SUCCEEDED: str = "ota.node_succeeded"
 OTA_NODE_ROLLED_BACK: str = "ota.node_rolled_back"
+# contract-v1.3.0 (Epic 24 §7 / hub Epic 25): read-only domain state snapshots.
+# Each event's `data` is a FULL REPLACEMENT of that domain's state (idempotent
+# upsert cloud-side); lifecycle/state string values inside are OPEN vocabularies
+# (the Epic 7 rule — consumers humanize unknown tokens, never drop or raise).
+COMPOST_STATE_SNAPSHOT: str = "compost.state_snapshot"
+GERMINATION_STATE_SNAPSHOT: str = "germination.state_snapshot"
+IRRIGATION_STATE_SNAPSHOT: str = "irrigation.state_snapshot"
 
 # The frozen `stage` enum inside ota.node_progress payloads (Story 7.1, forward
 # obligation F-11). These are bare lowercase tokens (payload VALUES, never event
@@ -63,10 +76,13 @@ EVENT_TYPES: frozenset[str] = frozenset(
         COMMAND_TIMED_OUT,
         CONNECTOR_DISABLED,
         HUB_KILL_SWITCH_CHANGED,
+        RULE_EXECUTION_TRIGGERED,
         OTA_NODE_PROGRESS,
         OTA_NODE_SUCCEEDED,
         OTA_NODE_ROLLED_BACK,
-        RULE_EXECUTION_TRIGGERED,
+        COMPOST_STATE_SNAPSHOT,
+        GERMINATION_STATE_SNAPSHOT,
+        IRRIGATION_STATE_SNAPSHOT,
     }
 )
 

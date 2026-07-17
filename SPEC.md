@@ -27,6 +27,37 @@ is an invite-only, limited-support companion service.
   Connectors keep working and produce a quiet "update available" state,
   never an error.
 
+### Version notes
+
+- **`contract-v1.3.0`** (2026-07-17) — Epic 24 §7 / hub Epic 25 seam. Additive;
+  integer `CONTRACT_VERSION` unchanged at `1` (N-1 rule holds — the cloud
+  tolerates every addition being absent from older hubs):
+  1. **`node.status_changed` `data` gains nullable `name`** (string — the node's
+     human label). Present on every emission so upserts are idempotent; a rename
+     propagates on the node's next status transition (the stream is
+     transition-driven, not a heartbeat) or via a state snapshot.
+  2. **Three read-only domain state-snapshot streams** (`compost-state`,
+     `germination-state`, `irrigation-state`) each carrying one event
+     (`compost.state_snapshot`, `germination.state_snapshot`,
+     `irrigation.state_snapshot`). See *State snapshots* under Event vocabulary
+     for shapes and semantics. Irrigation is strictly read-only — the command
+     seam (envelope, guards, Kill Switch) is unchanged.
+- **`contract-v1.2.0`** (2026-07-16; source-only — the tag was never published,
+  and its changes first ship in the `contract-v1.3.0` bundle) — Cloud-signed
+  **write-back** envelope variant (platform `"cloud"`, schema-restricted to
+  class `write-back`; ECDSA P-256/KMS). See `envelope/v1.json` and the Command
+  envelope section. Additive; `CONTRACT_VERSION` unchanged.
+- **`contract-v1.1.0`** (2026-06-25) — Froze the `ota.node_progress` `stage`
+  enum (`flashing`, `rebooting`, `confirmed`); see Event vocabulary. Additive
+  and non-breaking: the OTA event types and `ota-status` stream were already
+  reserved at `contract-v1.0.0` with no live consumer, so the integer
+  `CONTRACT_VERSION` is unchanged at `1` (no N/N-1 break). The frozen set is a
+  candidate drawn from the documented UX vocabulary; the cross-check against
+  the hub's implemented `WsOtaStatusEvent` enum is a standing forward obligation
+  — any change it forces will ship as a further version note here, never a
+  silent edit. The enum is open (see Event vocabulary), so an unanticipated hub
+  stage degrades gracefully rather than breaking surfaces.
+
 ## Bundle contents
 
 | File | What it is |
@@ -75,7 +106,10 @@ Streams (hub → cloud unless noted):
 | `commands` | **cloud → hub**: command envelopes (see below) |
 | `command-status` | hub → cloud: per-command stage events (accepted → executed / declined) |
 | `connector/status` | Connector lifecycle, incl. the clean-shutdown signal |
-| `ota-status` | Per-node OTA progress (stage vocabulary frozen separately — see events) |
+| `ota-status` | Per-node OTA progress (`ota.node_progress` `stage` enum + terminals — see Event vocabulary) |
+| `compost-state` | Compost domain state snapshots (`compost.state_snapshot` — see State snapshots) |
+| `germination-state` | Germination domain state snapshots (`germination.state_snapshot`) |
+| `irrigation-state` | Irrigation zone state snapshots (`irrigation.state_snapshot` — read-only; commands unchanged) |
 
 Timestamps in all payloads are ISO 8601 UTC with `Z` suffix and millisecond
 precision (`2026-06-12T14:32:05.123Z`). Device-originated reading time is
@@ -90,7 +124,35 @@ Defined in `events.py`: dot-namespaced, past tense, lowercase —
 `alert.acknowledged`, `alert.dismissed`, `alert.auto_cleared`,
 `command.accepted`, `command.executed`, `command.declined`,
 `command.timed_out`, `connector.disabled`, `ota.node_progress`,
-`ota.node_succeeded`, `ota.node_rolled_back`.
+`ota.node_succeeded`, `ota.node_rolled_back`, `compost.state_snapshot`,
+`germination.state_snapshot`, `irrigation.state_snapshot`.
+
+`node.status_changed` `data` (`contract-v1.3.0`) additionally carries a
+nullable **`name`** — the node's human label — on **every** emission, so
+cloud-side upserts are idempotent and a freshly provisioned device's first
+online envelope already names it.
+
+### State snapshots (`contract-v1.3.0`)
+
+Read-only, hub → cloud, one stream + one event per domain. Each event's
+`data` is a **full replacement** of that domain's state — the cloud upserts
+the whole domain per event; there are no per-item deltas and no tombstones
+(an item absent from a snapshot no longer exists). Hubs emit on domain
+change **plus** a slow reconcile tick (~30 minutes). Absent streams are
+normal (older hubs, or hardware the hub doesn't have) and MUST NOT produce
+errors or warnings cloud-side. All `state` string values are **open
+vocabularies** (the same rule as OTA stages): consumers humanize unknown
+tokens, never drop them, never raise.
+
+| Event | `data` |
+|---|---|
+| `compost.state_snapshot` | `{"bay_count": n, "piles": [{"id", "name", "bay_position", "bay_label", "state", "state_since"}]}` |
+| `germination.state_snapshot` | `{"setups": [{"id", "name", "crop_label", "state", "planted_at"}]}` |
+| `irrigation.state_snapshot` | `{"zones": [{"zone_id", "name", "enabled", "schedule", "duration_s", "last_activated_at", "next_run_at"}]}` |
+
+Irrigation snapshots are **strictly read-only**: zone control remains a
+hub-local concern and the command seam (envelopes, guards, Kill Switch) is
+untouched by this addition.
 
 Realtime payloads delivered to cloud clients all share one shape:
 
@@ -99,10 +161,18 @@ Realtime payloads delivered to cloud clients all share one shape:
  "occurred_at": "2026-06-12T14:32:05.123Z", "data": {}}
 ```
 
-The `stage` enum inside `ota.node_progress` is **not yet frozen**: it will
-mirror the hub's implemented `WsOtaStatusEvent` stage vocabulary verbatim
-and ships in a later bundle release before any OTA feature does. Do not
-invent stages against this version.
+Per-node OTA progress streams as `ota.node_progress` carrying a `stage` value
+in its `data` (`{"node_id": "...", "stage": "..."}`). The frozen `stage` enum
+(`contract-v1.1.0`) is, in lifecycle order: **`flashing`**, **`rebooting`**,
+**`confirmed`**. The per-node outcome is a separate terminal *event* —
+`ota.node_succeeded` or `ota.node_rolled_back` — not a stage.
+
+The `stage` enum is **open**: it is a candidate frozen from the documented UX
+vocabulary, pending a cross-check against the hub's implemented
+`WsOtaStatusEvent` enum. A consumer that receives a `stage` not in the frozen
+set MUST render it as a humanized form of the raw token (e.g. title-cased) —
+never drop it, never raise. Do not invent stage names; if the hub emits new
+ones, freeze them here with a version note.
 
 ## Command envelope (v1)
 
@@ -143,6 +213,19 @@ Schema: `envelope/v1.json` (JSON Schema Draft 2020-12). Semantics:
 - **Kill Switch.** While the hub's local Kill Switch is on, the hub
   declines every Command Request — including write-backs — with an explicit
   owner-disabled outcome. Metric publishing continues.
+- **OTA trigger vocabulary (Story 7.2, candidate — hub cross-check pending).**
+  A remote OTA is a single `actuating` Command Request, not a new class and
+  not a binary transfer (no firmware ever passes through the cloud — the cloud
+  relays a *trigger* and observes per-node progress). The candidate tokens are
+  `action = "ota.update"`, `target = <hub_id>` (the hub orchestrates the
+  selected nodes), and `params = { "node_ids": [<device_id>, …] }`. One
+  envelope updates one-or-more nodes; the hub fans out and streams per-node
+  `ota.node_progress` + terminals on `ota-status`. These tokens are a frozen
+  *candidate* (the same forward-obligation discipline as the `ota.node_progress`
+  `stage` enum): the implementing hub side (Epic 9.8 `ota-relay`) must match
+  them, and a cross-check that forces a change ships as a version note, not a
+  silent edit. Integer `CONTRACT_VERSION` is unchanged — the envelope shape is
+  untouched (`params` was always an open object).
 
 ## Claim Bootstrap (how a hub gets its credential)
 

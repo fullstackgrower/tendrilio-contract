@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tendrilio.com/contracts/envelope/v1.json",
   "title": "Tendrilio Command Envelope v1",
-  "description": "Client-signed, short-TTL, idempotent Command Request envelope. The cloud verifies and relays envelopes; it holds no signing key and cannot originate one. The hub independently re-verifies signature (against the enrolled instance / command-passkey public key), TTL, idempotency, and its Remote-Command Guards before acting. Reads have no envelope. See SPEC.md for semantics.",
+  "description": "Signed, short-TTL, idempotent Command Request envelope. Actuating commands are CLIENT-signed: the cloud verifies and relays them and holds no key that can originate one. Write-back commands (v1.2.0, additive) may instead be CLOUD-signed with the platform 'cloud' variant — schema-restricted to class 'write-back', so a compromised cloud still cannot mint an actuating command (FR18: write-backs are session-gated, and silent web signing is impossible since WebAuthn requires a user gesture). Cloud signing: ECDSA P-256, DER signature (base64) over the SHA-256 envelope-hash digest (compact sorted-key JSON of the signed fields; KMS DIGEST mode); 'challenge' is a fresh nonce with no server-side consumption semantics for platform 'cloud'. The hub independently re-verifies signature (enrolled instance / command-passkey public key, or the provisioned cloud write-back public key), TTL, idempotency, and its Remote-Command Guards before acting. Reads have no envelope. See SPEC.md for semantics.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -67,13 +67,28 @@
       "description": "Opaque server-issued challenge bound into the signed payload. Single-use; the cloud rejects envelopes whose challenge it did not issue or has already consumed."
     },
     "signature": {
-      "description": "Per-platform proof that the owner's enrolled credential signed THIS envelope. Exactly one platform variant; variants are closed (no field mixing).",
+      "description": "Proof that an authorized credential signed THIS envelope: the owner's enrolled device credential (ios/android/web), or — for class 'write-back' only — the cloud's write-back signing key ('cloud', v1.2.0). Exactly one platform variant; variants are closed (no field mixing).",
       "oneOf": [
         { "$ref": "#/$defs/ios_signature" },
         { "$ref": "#/$defs/android_signature" },
-        { "$ref": "#/$defs/web_signature" }
+        { "$ref": "#/$defs/web_signature" },
+        { "$ref": "#/$defs/cloud_signature" }
       ]
     }
+  },
+  "if": {
+    "type": "object",
+    "properties": {
+      "signature": {
+        "type": "object",
+        "properties": { "platform": { "const": "cloud" } },
+        "required": ["platform"]
+      }
+    },
+    "required": ["signature"]
+  },
+  "then": {
+    "properties": { "class": { "const": "write-back" } }
   },
   "$defs": {
     "uuidv7": {
@@ -127,6 +142,24 @@
           "type": "string",
           "minLength": 1,
           "description": "Fresh Play Integrity verdict token whose nonce derives from the same envelope hash — binding the verdict to this command."
+        }
+      }
+    },
+    "cloud_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "key_id", "signature"],
+      "description": "v1.2.0 (additive; CONTRACT_VERSION stays 1): the cloud's own write-back signing proof. Valid ONLY when class is 'write-back' (enforced by the schema's if/then). The hub verifies against the cloud write-back public key provisioned to it (22.11).",
+      "properties": {
+        "platform": { "const": "cloud" },
+        "key_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Identifier of the cloud signing key (e.g. the KMS alias), so the hub can select the right provisioned public key and rotation is expressible."
+        },
+        "signature": {
+          "$ref": "#/$defs/base64",
+          "description": "ECDSA P-256 DER signature (base64) over the SHA-256 envelope-hash digest."
         }
       }
     },
